@@ -1,15 +1,11 @@
 package com.mzy.redis;
 
 import com.mzy.distribute.SpringBaseTest;
-import com.mzy.distribute.config.RedisConfiguration;
+import com.mzy.distribute.utils.RedisUtils;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import redis.clients.jedis.ShardedJedis;
-import redis.clients.jedis.ShardedJedisPool;
 
-import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 
@@ -25,24 +21,25 @@ public class JedisTest extends SpringBaseTest {
 
     private String key = "key";
 
-    @Autowired
-    private ShardedJedisPool shardedJedisPool;
-
     @Test
     public void test() throws Exception {
         for (int i = 0; i < limiti; i++) {
             Thread t = new Thread(() -> {
                 for (int j = 0; j < limitj; j++) {
+                    final String threadName = String.valueOf(j);
                     Thread h = new Thread(() -> {
-                        try {
-                            Random random = new Random();
-                            ShardedJedis jedis = shardedJedisPool.getResource();
-                            if (jedis.llen(key) < 10) {
-                                jedis.rpush(key, random.nextInt(100000000) + "");
+                        Random random = new Random();
+                        Long length = RedisUtils.getInstance().llen(key);
+                        if (length != null && length < 10) {
+                            RedisUtils.getInstance().lock(threadName);
+                            length = RedisUtils.getInstance().llen(key);
+                            if (length != null && length < 10) {
+                                RedisUtils.getInstance().rpush(key, random.nextInt(100000000) + "");
                             }
-                        } catch (Throwable e) {
+                            RedisUtils.getInstance().unlock(threadName);
                         }
                         lanch.countDown();
+                        LOGGER.info("thread over...");
                     });
                     h.start();
                 }
@@ -52,11 +49,11 @@ public class JedisTest extends SpringBaseTest {
         lanch.await();
 
         try {
-            ShardedJedis jedis = shardedJedisPool.getResource();
-            Long length = jedis.llen(key);
+            Long length = RedisUtils.getInstance().llen(key);
             LOGGER.info("{}", length);
-            jedis.lrange(key, 0, length).stream().forEach(LOGGER::info);
+            RedisUtils.getInstance().lrange(key, 0, length).stream().forEach(LOGGER::info);
         } catch (Exception e) {
+            e.printStackTrace();
         }
 
     }
