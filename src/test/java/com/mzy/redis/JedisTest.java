@@ -13,9 +13,9 @@ public class JedisTest extends SpringBaseTest {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(JedisTest.class);
 
-    private int limiti = 1;
+    private int limiti = 10;
 
-    private int limitj = 1000;
+    private int limitj = 10;
 
     private CountDownLatch lanch = new CountDownLatch(limiti * limitj);
 
@@ -24,22 +24,26 @@ public class JedisTest extends SpringBaseTest {
     @Test
     public void test() throws Exception {
         for (int i = 0; i < limiti; i++) {
+            final int ii = i;
             Thread t = new Thread(() -> {
                 for (int j = 0; j < limitj; j++) {
-                    final String threadName = String.valueOf(j);
+                    final String threadName = String.valueOf(ii) + "-" + String.valueOf(j);
                     Thread h = new Thread(() -> {
-                        Random random = new Random();
+//                        try {
+//                            Random random = new Random();
+//                            long waitTime = random.nextInt(100);
+//                            Thread.sleep(waitTime);
+//                        } catch (Exception e) {
+//
+//                        }
+                        RedisUtils.getInstance().lockV2(threadName);
                         Long length = RedisUtils.getInstance().llen(key);
-                        if (length != null && length < 10) {
-                            RedisUtils.getInstance().lock(threadName);
-                            length = RedisUtils.getInstance().llen(key);
-                            if (length != null && length < 10) {
-                                RedisUtils.getInstance().rpush(key, random.nextInt(100000000) + "");
-                            }
-                            RedisUtils.getInstance().unlock(threadName);
+                        if(length == null || length < 10){
+                            RedisUtils.getInstance().rpush(key, threadName);
                         }
+                        RedisUtils.getInstance().unlockV2(threadName);
                         lanch.countDown();
-                        LOGGER.info("thread over...");
+                        LOGGER.info("thread({}) over...", threadName);
                     });
                     h.start();
                 }
