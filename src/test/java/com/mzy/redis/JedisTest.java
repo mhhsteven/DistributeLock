@@ -13,9 +13,9 @@ public class JedisTest extends SpringBaseTest {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(JedisTest.class);
 
-    private int limiti = 10;
+    private int limiti = 1;
 
-    private int limitj = 10;
+    private int limitj = 1000;
 
     private CountDownLatch lanch = new CountDownLatch(limiti * limitj);
 
@@ -27,21 +27,24 @@ public class JedisTest extends SpringBaseTest {
             final int ii = i;
             Thread t = new Thread(() -> {
                 for (int j = 0; j < limitj; j++) {
-                    final String threadName = String.valueOf(ii) + "-" + String.valueOf(j);
+                    final String threadName = "B-" + String.valueOf(ii) + "-" + String.valueOf(j);
                     Thread h = new Thread(() -> {
-//                        try {
-//                            Random random = new Random();
-//                            long waitTime = random.nextInt(100);
-//                            Thread.sleep(waitTime);
-//                        } catch (Exception e) {
-//
-//                        }
-                        RedisUtils.getInstance().lockV2(threadName);
-                        Long length = RedisUtils.getInstance().llen(key);
-                        if(length == null || length < 10){
-                            RedisUtils.getInstance().rpush(key, threadName);
+                        try {
+                            Random random = new Random();
+                            long waitTime = random.nextInt(1000);
+                            Thread.sleep(waitTime);
+                        } catch (Exception e) {
+
                         }
-                        RedisUtils.getInstance().unlockV2(threadName);
+                        boolean lock = RedisUtils.getInstance().lockV2(threadName, 500);
+                        if (lock) {
+                            Long length = RedisUtils.getInstance().llen(key);
+                            if (length == null || length < 10) {
+                                RedisUtils.getInstance().rpush(key, threadName);
+                                LOGGER.info("thread({})推入了数据", threadName);
+                            }
+                            RedisUtils.getInstance().unlockV2(threadName);
+                        }
                         lanch.countDown();
                         LOGGER.info("thread({}) over...", threadName);
                     });

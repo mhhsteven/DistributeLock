@@ -9,6 +9,7 @@ import redis.clients.jedis.ShardedJedis;
 import redis.clients.jedis.ShardedJedisPool;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class RedisUtils {
 
@@ -46,8 +47,7 @@ public class RedisUtils {
 
     private RedisUtils() {
         if (jedisPool == null) {
-            RedisConfiguration redisConfiguration = SpringContextUtils.getBean(RedisConfiguration.class);
-            jedisPool = redisConfiguration.getJedisPool();
+            jedisPool = SpringContextUtils.getBean(ShardedJedisPool.class);
         }
     }
 
@@ -79,16 +79,19 @@ public class RedisUtils {
         }
     }
 
-    public <V> boolean setnx(final String key, final V value) {
+    public <V> boolean setnx(final String key, final V value, final String threadName) {
         ShardedJedis jedis = null;
         Long result = null;
         try {
+            //LOGGER.info("redis pool info before, threadName : {}, pool active size: {}, idle size: {}, waiter size: {}, pool is close: {}", threadName, jedisPool.getNumActive(), jedisPool.getNumIdle(), jedisPool.getNumWaiters(), jedisPool.isClosed());
             jedis = jedisPool.getResource();
+            //LOGGER.info("redis pool info after, threadName : {}, pool active size: {}, idle size: {}, waiter size: {}, pool is close: {}", threadName, jedisPool.getNumActive(), jedisPool.getNumIdle(), jedisPool.getNumWaiters(), jedisPool.isClosed());
             result = jedis.setnx(key, JSON.toJSONString(value));
         } catch (Exception e) {
-            LOGGER.error("setnx redis error, key : {}", key, e);
+//            LOGGER.error("setnx redis error, threadName : {}, pool active size: {}, idle size: {}, waiter size: {}, pool is close: {}", threadName, jedisPool.getNumActive(), jedisPool.getNumIdle(), jedisPool.getNumWaiters(), jedisPool.isClosed(), e);
         } finally {
             returnResource(jedis);
+            //LOGGER.info("redis pool info release, threadName : {}, pool active size: {}, idle size: {}, waiter size: {}, pool is close: {}", threadName, jedisPool.getNumActive(), jedisPool.getNumIdle(), jedisPool.getNumWaiters(), jedisPool.isClosed());
         }
         return result != null && result > 0L;
     }
@@ -160,7 +163,7 @@ public class RedisUtils {
         while (timeout >= 0) {
             long expires = System.currentTimeMillis() + expireMsecs + 1;
             String expiresStr = String.valueOf(expires); // 锁到期时间
-            boolean flag = this.setnx(lockKey, expiresStr);
+            boolean flag = this.setnx(lockKey, expiresStr, threadName);
             if (flag) {
                 // lock acquired
                 locked = true;
@@ -202,17 +205,17 @@ public class RedisUtils {
         return false;
     }
 
-    public void lockV2(String threadName) {
-        long lockTime = System.currentTimeMillis();
+    public boolean lockV2(String threadName, long timeout) {
+        final long lockTime = System.nanoTime();
         String lockTimeStr = String.valueOf(lockTime);
-//        int count = 0;
-        while (true) {
-            if (this.setnx(lockKey, lockTimeStr)) {
-                LOGGER.info("thread({})抢到了", threadName);
-                return;
+        long beginTime = System.nanoTime();
+        do {
+            if (this.setnx(lockKey, lockTimeStr, threadName)) {
+                //LOGGER.info("thread({})抢到了", threadName);
+                return true;
             }
-//            LOGGER.info("thread({})没抢到，尝试了{}次", threadName, ++count);
-        }
+        } while (System.nanoTime() - beginTime < TimeUnit.MILLISECONDS.toNanos(timeout));
+        return false;
     }
 
     /**
@@ -225,7 +228,7 @@ public class RedisUtils {
                 jedis = jedisPool.getResource();
                 jedis.del(lockKey);
                 locked = false;
-                LOGGER.info("thread({})释放了锁", threadName);
+                //LOGGER.info("thread({})释放了锁", threadName);
             } catch (Exception e) {
                 LOGGER.error("unlock redis error, key : {}", lockKey);
             } finally {
@@ -242,7 +245,7 @@ public class RedisUtils {
         try {
             jedis = jedisPool.getResource();
             jedis.del(lockKey);
-            LOGGER.info("thread{}释放了锁", threadName);
+            //LOGGER.info("thread{}释放了锁", threadName);
         } catch (Exception e) {
             LOGGER.error("unlock redis error, key : {}", lockKey);
         } finally {
